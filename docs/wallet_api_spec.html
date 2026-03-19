@@ -1,1 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallet / Rewards API Specification</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a2b;
+      --panel-2: #18233a;
+      --text: #e8edf7;
+      --muted: #b8c2d9;
+      --accent: #6aa9ff;
+      --border: #2a3754;
+      --code: #0f1728;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: linear-gradient(180deg, var(--bg), #0d1324 50%, #0b1020);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin-top: 1.4em;
+      margin-bottom: 0.6em;
+    }
+    h1 {
+      font-size: 2.2rem;
+      margin-top: 0;
+    }
+    h2 {
+      font-size: 1.55rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.35em;
+    }
+    h3 {
+      font-size: 1.15rem;
+    }
+    p, li { color: var(--muted); }
+    code.inline {
+      background: var(--code);
+      border: 1px solid var(--border);
+      padding: 0.12rem 0.38rem;
+      border-radius: 6px;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95em;
+    }
+    pre {
+      background: var(--code);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      color: var(--text);
+      font-size: 0.93rem;
+    }
+    .panel {
+      background: rgba(18, 26, 43, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 22px;
+      margin: 18px 0 24px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+    }
+    .note {
+      background: rgba(106, 169, 255, 0.08);
+      border-left: 4px solid var(--accent);
+      padding: 12px 14px;
+      border-radius: 10px;
+      color: var(--text);
+    }
+    .endpoint {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin: 20px 0;
+    }
+    .method {
+      display: inline-block;
+      min-width: 58px;
+      text-align: center;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 6px 10px;
+      margin-right: 10px;
+      color: white;
+      font-size: 0.86rem;
+      vertical-align: middle;
+    }
+    .get { background: #1f7a45; }
+    .post { background: #8a5cf6; }
+    .path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text);
+      font-size: 1rem;
+      word-break: break-all;
+    }
+    .subtle { color: var(--muted); }
+    .toc a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .toc a:hover { text-decoration: underline; }
+    hr {
+      border: 0;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+    .mermaid {
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px;
+      overflow-x: auto;
+    }
+    .footer {
+      margin-top: 48px;
+      color: #92a0be;
+      font-size: 0.92rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Wallet / Rewards API Specification</h1>
 
+    <div class="panel toc">
+      <strong>Contents</strong>
+      <ul>
+        <li><a href="#base-url">Base URL</a></li>
+        <li><a href="#authentication-flow">Authentication Flow</a></li>
+        <li><a href="#endpoints">Endpoints</a></li>
+        <li><a href="#error-handling">Error Handling</a></li>
+        <li><a href="#notes">Notes</a></li>
+      </ul>
+    </div>
+
+    <h2 id="base-url">Base URL</h2>
+    <pre><code>{HOST_URL}</code></pre>
+
+    <h2 id="authentication-flow">Authentication Flow</h2>
+    <div class="panel">
+      <div class="mermaid">
+sequenceDiagram
+  participant Client
+  participant Server
+
+  Client->>Server: POST /register
+  Client->>Server: GET /get-nonce
+  Server-->>Client: nonce
+  Client->>Server: POST /login (signed nonce)
+  Server-->>Client: access_token + refresh_token
+
+  Client->>Server: API requests (Bearer access_token)
+
+  alt Token expired
+    Server-->>Client: { "msg": "Token has expired" }
+    Client->>Server: POST /refresh
+  end
+      </div>
+    </div>
+
+    <h2 id="endpoints">Endpoints</h2>
+
+    <div class="endpoint">
+      <h3>1. Register Wallet</h3>
+      <p><span class="method post">POST</span><span class="path">/register</span></p>
+      <p class="subtle">Request</p>
+      <pre><code>{
+  "public_address": "0xYourEthereumAddress"
+}</code></pre>
+      <p class="subtle">Response — Success</p>
+      <pre><code>{
+  "status": "success",
+  "nonce": 12345
+}</code></pre>
+      <p class="subtle">Response — Already exists</p>
+      <pre><code>{
+  "status": "failed",
+  "message": "already exists"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>2. Get Nonce</h3>
+      <p><span class="method get">GET</span><span class="path">/get-nonce?public_address=0x...</span></p>
+      <p class="subtle">Response — Exists</p>
+      <pre><code>{
+  "status": "exists",
+  "nonce": 12345
+}</code></pre>
+      <p class="subtle">Response — Not found</p>
+      <pre><code>{
+  "status": "not found"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>3. Login</h3>
+      <p><span class="method post">POST</span><span class="path">/login</span></p>
+      <p class="subtle">Request</p>
+      <pre><code>{
+  "public_address": "0x...",
+  "signature": "0xSignature",
+  "source": "brainstem"
+}</code></pre>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "status": "success",
+  "access_token": "token",
+  "refresh_token": "refresh"
+}</code></pre>
+      <p class="subtle">Error</p>
+      <pre><code>{
+  "message": "Signature invalid"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>4. Refresh Token</h3>
+      <p><span class="method post">POST</span><span class="path">/refresh</span></p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;refresh_token&gt;</code></pre>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "access_token": "new_token"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>5. Upload Record</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/upload-record</span></p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;
+Content-Type: multipart/form-data</code></pre>
+      <p class="subtle">Body</p>
+      <pre><code>file: &lt;binary&gt;</code></pre>
+      <p class="subtle">Success</p>
+      <pre><code>{
+  "id": "file_id",
+  "message": "File successfully uploaded"
+}</code></pre>
+      <p class="subtle">Duplicate file</p>
+      <pre><code>{
+  "status": "failed",
+  "messages": ["The uploaded file already exists in the dataset."]
+}</code></pre>
+      <p class="subtle">Token expired</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>6. Get Claimable Rewards</h3>
+      <p><span class="method get">GET</span><span class="path">/api/v1/rewards/?entity_type=image</span></p>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "amount": 1234567890
+}</code></pre>
+      <div class="note">Amount is in <strong>Wei</strong>.</div>
+    </div>
+
+    <div class="endpoint">
+      <h3>7. Get Rewards List</h3>
+      <p><span class="method get">GET</span><span class="path">/api/v1/rewards/list?entity_type=image&amp;page=1</span></p>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "result": [
+    { "...": "..." }
+  ]
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>8. Get Total Rewards</h3>
+      <p><span class="method get">GET</span><span class="path">/api/v1/rewards/total-rewards</span></p>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "result": 1234567890
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>9. Claim Rewards</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/rewards/claim</span></p>
+      <p class="subtle">Request</p>
+      <pre><code>{
+  "entity_type": "image"
+}</code></pre>
+      <p class="subtle">Response — Variant 1</p>
+      <pre><code>{
+  "transaction_hash": "0x..."
+}</code></pre>
+      <p class="subtle">Response — Variant 2</p>
+      <pre><code>{
+  "messages": ["Reward amount is 1234567890"]
+}</code></pre>
+      <p class="subtle">Error</p>
+      <pre><code>{
+  "messages": ["Not a valid address: ..."]
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>10. Set peaq Address</h3>
+      <p><span class="method post">POST</span><span class="path">/set-peaq-address</span></p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+      <p class="subtle">Request</p>
+      <pre><code>{
+  "peaq_address": "peaq-address"
+}</code></pre>
+      <p class="subtle">Response</p>
+      <pre><code>{
+  "status": "success"
+}</code></pre>
+    </div>
+
+    <h2 id="error-handling">Error Handling</h2>
+    <h3>Token Expiration</h3>
+    <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+
+    <h3>Generic Failure</h3>
+    <pre><code>{
+  "status": "failed",
+  "messages": ["..."]
+}</code></pre>
+
+    <h2 id="notes">Notes</h2>
+    <ul>
+      <li>Ethereum address uses <strong>EIP-55 checksum format</strong>.</li>
+      <li>Nonce must be signed as a <strong>plain string</strong>.</li>
+      <li>Rewards are returned in <strong>Wei</strong> and converted client-side.</li>
+      <li><span class="path">/claim</span> has inconsistent response formats.</li>
+      <li>Protected endpoints require token refresh when expired.</li>
+    </ul>
+
+    <div class="footer">
+      Standalone HTML document generated from the Markdown section “Wallet / Rewards API Specification”.
+    </div>
+  </div>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>
