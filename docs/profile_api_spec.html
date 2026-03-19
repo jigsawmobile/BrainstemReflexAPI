@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile / Data Sharing API Specification</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121a2b; --panel2:#18233a; --text:#e8edf7; --muted:#b8c2d9; --accent:#6aa9ff; --border:#2a3754; --code:#0f1728; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:linear-gradient(180deg,var(--bg),#0d1324 50%,var(--bg)); color:var(--text); line-height:1.55; }
+    .container { max-width:980px; margin:0 auto; padding:40px 20px 64px; }
+    h1,h2,h3 { line-height:1.2; margin-top:1.4em; margin-bottom:.6em; }
+    h1 { font-size:2.2rem; margin-top:0; }
+    h2 { font-size:1.55rem; border-bottom:1px solid var(--border); padding-bottom:.35em; }
+    h3 { font-size:1.15rem; }
+    p,li { color:var(--muted); }
+    pre { background:var(--code); border:1px solid var(--border); border-radius:12px; padding:14px 16px; overflow-x:auto; color:var(--text); font-size:.93rem; }
+    .panel { background:rgba(18,26,43,.9); border:1px solid var(--border); border-radius:16px; padding:22px; margin:18px 0 24px; box-shadow:0 12px 40px rgba(0,0,0,.22); }
+    .note { background:rgba(106,169,255,.08); border-left:4px solid var(--accent); padding:12px 14px; border-radius:10px; color:var(--text); }
+    .warning { background:rgba(255,184,77,.10); border-left:4px solid #ffb84d; padding:12px 14px; border-radius:10px; color:var(--text); }
+    .endpoint { background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:18px 20px; margin:20px 0; }
+    .method { display:inline-block; min-width:58px; text-align:center; font-weight:700; border-radius:999px; padding:6px 10px; margin-right:10px; color:#fff; font-size:.86rem; vertical-align:middle; }
+    .get { background:#1f7a45; } .post { background:#8a5cf6; }
+    .path { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--text); word-break:break-all; }
+    .subtle { color:var(--muted); }
+    .toc a { color:var(--accent); text-decoration:none; } .toc a:hover { text-decoration:underline; }
+    .mermaid { background:#fff; border-radius:12px; padding:10px; overflow-x:auto; }
+    .footer { margin-top:48px; color:#92a0be; font-size:.92rem; }
+    table { width:100%; border-collapse:collapse; margin:10px 0 18px; }
+    th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+    th { background:var(--panel2); color:var(--text); } td { color:var(--muted); }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Profile / Data Sharing API Specification</h1>
+
+    <div class="panel toc">
+      <strong>Contents</strong>
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#base-url">Base URL</a></li>
+        <li><a href="#authentication">Authentication Dependency</a></li>
+        <li><a href="#flow">Device Registration &amp; Data Share Flow</a></li>
+        <li><a href="#endpoints">Endpoints</a></li>
+        <li><a href="#statuses">Token / Device Status</a></li>
+        <li><a href="#errors">Error Handling</a></li>
+        <li><a href="#notes">Implementation Notes</a></li>
+      </ul>
+    </div>
+
+    <h2 id="overview">Overview</h2>
+    <p>This document describes the backend API usage inferred from <code>ProfileController.swift</code>. It focuses on the controller’s server-facing data-sharing features rather than local UI, export, or HealthKit-only operations.</p>
+    <p>The client implements these authenticated operations:</p>
+    <ul>
+      <li>registering a device to the authenticated user</li>
+      <li>creating a device-specific data share</li>
+      <li>stopping data sharing</li>
+      <li>deleting uploaded user records</li>
+      <li>sharing device data to a backend wallet address</li>
+    </ul>
+    <div class="warning">All protected endpoints rely on an access token obtained by <code>WalletSettingsTableController</code>. When the backend returns <code>{ "msg": "Token has expired" }</code>, the client refreshes the token and retries by using follow-up actions.</div>
+
+    <h2 id="base-url">Base URL</h2>
+    <pre><code>{HOST_URL}</code></pre>
+
+    <h2 id="authentication">Authentication Dependency</h2>
+    <div class="panel">
+      <p><code>ProfileController</code> does not implement its own login flow. It depends on the wallet controller for:</p>
+      <ul>
+        <li>current <code>access_token</code></li>
+        <li>token refresh</li>
+        <li>wallet address validation / restoration</li>
+      </ul>
+      <p>Protected requests therefore use:</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+    </div>
+
+    <h2 id="flow">Device Registration &amp; Data Share Flow</h2>
+    <div class="panel">
+      <div class="mermaid">
+sequenceDiagram
+  participant User
+  participant ProfileController
+  participant Wallet
+  participant Server
+
+  User->>ProfileController: Register device
+  ProfileController->>Wallet: fetchAccessTokenAtomically()
+  alt No token
+    ProfileController->>Wallet: getNonceAndTokenFor(.register_device)
+  end
+  ProfileController->>Server: POST /api/v1/devices/register
+
+  alt Registered or already owned
+    Server-->>ProfileController: success + code 1 or 2
+    ProfileController->>Server: POST /api/v1/metadata/create-data-share
+    Server-->>ProfileController: result {data_nft_address, data_share_id, data_token_address}
+    ProfileController-->>User: token status = READY
+  else Token expired
+    Server-->>ProfileController: { "msg": "Token has expired" }
+    ProfileController->>Wallet: refreshToken(...)
+  else Registration failure
+    Server-->>ProfileController: failed status / code
+    ProfileController-->>User: error alert
+  end
+
+  opt Restricted device flow
+    ProfileController->>Server: POST /api/v1/metadata/share-data?to_address=...&data_share_id=...
+  end
+      </div>
+    </div>
+
+    <h2 id="endpoints">Endpoints</h2>
+
+    <div class="endpoint">
+      <h3>1. Register Device</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/devices/register</span></p>
+      <p class="subtle">Purpose</p>
+      <p>Registers a submitted device identifier for the authenticated user.</p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;
+Content-Type: application/json</code></pre>
+      <p class="subtle">Request</p>
+      <pre><code>{
+  "device_id": "submitted-device-id"
+}</code></pre>
+      <p class="subtle">Known reply mapping inferred from client</p>
+      <table>
+        <thead><tr><th>Status</th><th>Code</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>success</code></td><td><code>1</code></td><td>Device registered successfully; client proceeds to create data share.</td></tr>
+          <tr><td><code>success</code></td><td><code>2</code></td><td>Device already exists and is already registered to this user.</td></tr>
+          <tr><td><code>failed</code></td><td><code>3</code></td><td>Device does not exist.</td></tr>
+          <tr><td><code>failed</code></td><td><code>4</code></td><td>Device exists but registered to another user.</td></tr>
+        </tbody>
+      </table>
+      <p class="subtle">Example success-style reply</p>
+      <pre><code>{
+  "status": "success",
+  "code": 1,
+  "messages": "Device registered successfully"
+}</code></pre>
+      <p class="subtle">Token expiration</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>2. Create Data Share</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/metadata/create-data-share</span></p>
+      <p class="subtle">Purpose</p>
+      <p>Creates the server-side data-sharing entity for the current device/user pair.</p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+      <p class="subtle">Request body</p>
+      <p>No request body is sent by the client.</p>
+      <p class="subtle">HTTP 200 success response</p>
+      <pre><code>{
+  "result": {
+    "data_nft_address": "0x...",
+    "data_share_id": "share-id",
+    "data_token_address": "0x..."
+  }
+}</code></pre>
+      <p class="subtle">HTTP 400 failure response</p>
+      <pre><code>{
+  "messages": ["..."]
+}</code></pre>
+      <p class="subtle">HTTP 401 token expiration</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+      <div class="note">On success, the client stores <code>data_nft_address</code>, <code>data_share_id</code>, and <code>data_token_address</code>, then marks token status as <strong>READY</strong>.</div>
+    </div>
+
+    <div class="endpoint">
+      <h3>3. Stop Data Sharing</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/metadata/stop-data-share</span></p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+      <p class="subtle">Request body</p>
+      <p>No request body is sent by the client.</p>
+      <p class="subtle">Success response</p>
+      <pre><code>{
+  "result": "success"
+}</code></pre>
+      <p class="subtle">Validation / business error</p>
+      <pre><code>{
+  "messages": ["..."]
+}</code></pre>
+      <p class="subtle">Token expiration</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <h3>4. Delete User Records</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/delete-records</span></p>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+      <p class="subtle">Request body</p>
+      <p>No request body is sent by the client.</p>
+      <p class="subtle">Success response</p>
+      <pre><code>{
+  "message": "Records deleted"
+}</code></pre>
+      <p class="subtle">Token expiration</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+      <div class="warning">The client only treats the literal message <code>"Records deleted"</code> as confirmed success.</div>
+    </div>
+
+    <div class="endpoint">
+      <h3>5. Share Data to Backend Wallet</h3>
+      <p><span class="method post">POST</span><span class="path">/api/v1/metadata/share-data?to_address=&lt;wallet&gt;&amp;data_share_id=&lt;share-id&gt;</span></p>
+      <p class="subtle">Purpose</p>
+      <p>Shares an existing device data share to a specific wallet address. The client uses this fixed backend wallet address:</p>
+      <pre><code>0xAC27FC669b9fEB045bDdFc6ec4EdC84608CF9666</code></pre>
+      <p class="subtle">Headers</p>
+      <pre><code>Authorization: Bearer &lt;access_token&gt;</code></pre>
+      <p class="subtle">Query parameters</p>
+      <table>
+        <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>to_address</code></td><td>Target wallet address to receive the data share.</td></tr>
+          <tr><td><code>data_share_id</code></td><td>Identifier previously returned by create-data-share.</td></tr>
+        </tbody>
+      </table>
+      <p class="subtle">HTTP 200 success response</p>
+      <pre><code>{
+  "result": {
+    "data_share_id": "share-id",
+    "mint_tx": "transaction-id-or-hash"
+  }
+}</code></pre>
+      <p class="subtle">HTTP 400 failure response</p>
+      <pre><code>{
+  "messages": ["..."]
+}</code></pre>
+      <p class="subtle">HTTP 401 token expiration</p>
+      <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+      <div class="note">The client refuses to call this endpoint until it already has a local <code>data_share_id</code>. If none exists, it treats the device as unregistered.</div>
+    </div>
+
+    <h2 id="statuses">Token / Device Status</h2>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Status</th><th>Meaning in client</th></tr></thead>
+        <tbody>
+          <tr><td><code>NO DEVICE</code></td><td>No registered/usable device state is available.</td></tr>
+          <tr><td><code>PROCESSING</code></td><td>Device/data-share creation request is in progress.</td></tr>
+          <tr><td><code>READY</code></td><td>Device and data-share flow completed successfully.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="errors">Error Handling</h2>
+    <h3>Standard token expiration contract</h3>
+    <pre><code>{
+  "msg": "Token has expired"
+}</code></pre>
+    <h3>Common message-array failure shape</h3>
+    <pre><code>{
+  "messages": ["..."]
+}</code></pre>
+    <h3>Mixed response conventions</h3>
+    <p>The backend responses observed by this client are not fully uniform. Across endpoints, the client expects a mix of <code>status</code> + <code>code</code> + <code>messages</code>, <code>result</code> as string or object, <code>message</code> as string, and <code>msg</code> for token-expiration signaling.</p>
+
+    <h2 id="notes">Implementation Notes</h2>
+    <ul>
+      <li>Authentication is delegated to the wallet controller.</li>
+      <li>The class also supports local export of TXT, JSON, and HealthKit archives, but those are not backend API calls.</li>
+      <li>After successful device registration or data-share creation, the client may trigger additional peaq-related linking outside this controller.</li>
+      <li>For “share to wallet”, the target address is hard-coded in the client as a backend wallet address.</li>
+      <li>A normalized backend response schema would make this API easier for external integrators.</li>
+    </ul>
+
+    <div class="footer">Standalone HTML document generated from the server-interaction methods found in <code>ProfileController.swift</code>.</div>
+  </div>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>
